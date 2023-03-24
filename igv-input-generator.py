@@ -23,7 +23,8 @@
 
 import sys
 import argparse
-import xml.etree.ElementTree as et
+import xml.etree.cElementTree as et
+import xml.dom.minidom as minidom
 import networkx as nx
 import os
 import io
@@ -47,7 +48,6 @@ def find_node_properties(graph, idx):
     ps = {}
     for p in node.find('properties'):
         ps[p.attrib['name']] = p.text.strip()
-    ps.pop('idx', None)
     return ps
 
 def xml2graphs(xml_root, args):
@@ -56,11 +56,10 @@ def xml2graphs(xml_root, args):
     for group in xml_root:
         method = group.find('method')
         group_name = method.attrib['name']
-        short_group_name = method.attrib['shortName'].strip()
         bci = int(method.attrib['bci'])
         for graph in group.findall('graph'):
             graph_name = graph.attrib['name']
-            if not matches((graph_id, short_group_name, graph_name), args.filter):
+            if not matches((graph_id, group_name, graph_name), args.filter):
                 graph_id += 1
                 continue
             # Load the entire graph first.
@@ -93,9 +92,39 @@ def xml2graphs(xml_root, args):
                         for xmlsucc in xmlblock.find('successors'):
                             succ = int(xmlsucc.attrib['name'])
                             CFG.add_edge(block, succ)
-            graphs[graph_id] = ((short_group_name, graph_name), G, CFG)
+            graphs[graph_id] = ((group_name, graph_name), G, CFG)
             graph_id += 1
     return graphs
+
+def graphs2xml(graphs, args):
+    group_to_graphs = dict()
+    for ((group, graph), G, CFG) in graphs.values():
+        if not group in group_to_graphs:
+            group_to_graphs[group] = []
+        group_to_graphs[group].append((graph, G))
+
+    xml_root = et.Element('graphDocument')
+    for group, graphs in group_to_graphs.items():
+        xml_group = et.SubElement(xml_root, 'group')
+        xml_group_properties = et.SubElement(xml_group, 'properties')
+        et.SubElement(xml_group_properties, 'p', name='name').text = group
+        for (graph, G) in graphs:
+            graph2xml(xml_group, graph, G, args)
+    return xml_root
+
+def graph2xml(xml_group, graph, G, args):
+    xml_graph = et.SubElement(xml_group, 'graph', name=graph)
+    xml_nodes = et.SubElement(xml_graph, 'nodes')
+    for n in list(G.nodes()):
+        xml_node = et.SubElement(xml_nodes, 'node', id=str(n))
+        xml_node_properties = et.SubElement(xml_node, 'properties')
+        for property, value in G.nodes[n].items():
+            et.SubElement(xml_node_properties, 'p', name=property).text = value
+    xml_edges = et.SubElement(xml_graph, 'edges')
+    for e in list(G.edges):
+        (src, dst, index) = e
+        et.SubElement(xml_edges, 'edge', dict([('from', str(src)), ('to', str(dst)), ('index', str(index))]))
+    et.SubElement(xml_graph, 'edges')
 
 filter_symbols = {'g' : 'int g',
                   'method' : 'str method(int)',
@@ -134,11 +163,13 @@ def main():
         description="Generates a sequence of graphs by simulating different user actions on a given graph.",
         formatter_class=argparse.RawTextHelpFormatter,
         add_help=False,
-        usage='%(prog)s [options] XML_FILE')
+        usage='%(prog)s [options] XML_FILE XML_OUTPUT_FILE')
 
     io = parser.add_argument_group('input/output options')
-    io.add_argument('XML_FILE',
-                    help="XML graph file emitted by the HotSpot JVM")
+    io.add_argument('XML_INPUT_FILE',
+                    help="XML input graph file emitted by the HotSpot JVM")
+    io.add_argument('XML_OUTPUT_FILE',
+                    help="XML output graph file")
     add_feature_argument(io,
                          'verbose',
                          "print debug information to the standard output",
@@ -165,8 +196,8 @@ def main():
     try:
         # Parse XML file.
         if args.verbose:
-            print("parsing input file " + args.XML_FILE + " ...")
-        tree = et.parse(args.XML_FILE)
+            print("parsing input file " + args.XML_INPUT_FILE + " ...")
+        tree = et.parse(args.XML_INPUT_FILE)
         root = tree.getroot()
 
         # Convert XML to a map from id to ((method, phase), NetworkX graph,
@@ -186,6 +217,14 @@ def main():
         # If asked explicitly, terminate at this point.
         if args.list:
             return
+        # Convert graphs back to XML.
+        if args.verbose:
+            print("emitting output file " + args.XML_OUTPUT_FILE + " ...")
+        out_root = graphs2xml(graphs, args)
+        # Save output into file.
+        xmlstr = minidom.parseString(et.tostring(out_root)).toprettyxml(indent="   ")
+        with open(args.XML_OUTPUT_FILE, "w") as f:
+            f.write(xmlstr)
     except Exception as error:
         print('Exception: {}'.format(error))
     finally:
