@@ -31,8 +31,7 @@ import io
 from pathlib import *
 import shutil
 import re
-import html
-from itertools import chain
+import random
 
 # Helper functions for traversing the XML graph.
 
@@ -126,6 +125,24 @@ def graph2xml(xml_group, graph, G, args):
         et.SubElement(xml_edges, 'edge', dict([('from', str(src)), ('to', str(dst)), ('index', str(index))]))
     et.SubElement(xml_graph, 'edges')
 
+def expand(args, graph, key, expanded_graphs):
+    n = int(args.size)
+    ((method, phase), G, CFG) = graph
+    for k in range(key, key + n):
+        G = G.copy()
+        step(args, G)
+        expanded_graphs[k] = ((method, phase), G, CFG)
+    return key + n
+
+def step(args, G):
+    # Simulate action on G (e.g. hiding or expansion).
+    # Here, for example, we just remove one randomly picked node.
+    nodes = list(G.nodes)
+    if not nodes:
+        return
+    n = random.choice(nodes)
+    G.remove_node(n)
+
 filter_symbols = {'g' : 'int g',
                   'method' : 'str method(int)',
                   'phase' : 'str phase(int)'}
@@ -190,6 +207,10 @@ def main():
 """predicate telling whether to consider graph g (default: %(default)s)
 -- arbitrary Python expression combining the following elements:
 """ + '\n'.join(filter_symbols.values()))
+    list_filter.add_argument('--size',
+                             metavar='N',
+                             default='1',
+                             help="number of graph copies for each graph (default: %(default)s)")
 
     args = parser.parse_args()
 
@@ -217,10 +238,17 @@ def main():
         # If asked explicitly, terminate at this point.
         if args.list:
             return
-        # Convert graphs back to XML.
+        # Expand the selected graphs
+        expanded_graphs = dict()
+        key = 0
+        for (graph_id, ((method, phase), G, CFG)) in graphs.items():
+            if args.verbose:
+                print("expanding " + str(graph_id) + " " + method + "::" + phase + "...")
+            key = expand(args, ((method, phase), G, CFG), key, expanded_graphs)
+        # Convert the selected graphs back to XML.
         if args.verbose:
             print("emitting output file " + args.XML_OUTPUT_FILE + " ...")
-        out_root = graphs2xml(graphs, args)
+        out_root = graphs2xml(expanded_graphs, args)
         # Save output into file.
         xmlstr = minidom.parseString(et.tostring(out_root)).toprettyxml(indent="   ")
         with open(args.XML_OUTPUT_FILE, "w") as f:
