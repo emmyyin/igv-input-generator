@@ -32,6 +32,7 @@ from pathlib import *
 import shutil
 import re
 import random
+import itertools
 
 # Helper functions for traversing the XML graph.
 
@@ -163,30 +164,102 @@ def graph2xml(xml_group, graph, G, args):
         xml_node = et.SubElement(xml_nodes, 'node', id=str(n))
         xml_node_properties = et.SubElement(xml_node, 'properties')
         for property, value in G.nodes[n].items():
-            et.SubElement(xml_node_properties, 'p', name=property).text = value
+            et.SubElement(xml_node_properties, 'p', name=property).text = str(value)
     xml_edges = et.SubElement(xml_graph, 'edges')
     for e in list(G.edges):
         (src, dst, index) = e
         et.SubElement(xml_edges, 'edge', dict([('from', str(src)), ('to', str(dst)), ('index', str(index))]))
     et.SubElement(xml_graph, 'edges')
 
-def expand(args, graph, key, expanded_graphs):
+def create_sub_graph(args, G, original_G, with_neighbors_shown=True):
+    if not args.nodes:
+        return G
+    nr_nodes = int(args.nodes)
+    nodes = list(G.nodes)
+    if not nodes or nr_nodes > len(nodes):
+        return G
+    while len(nodes) > nr_nodes:
+        n = random.choice(nodes)
+        G.remove_node(n)
+        nodes.remove(n)
+    if with_neighbors_shown:
+        add_hidden_neighbors(G, original_G)
+    return G
+
+def add_hidden_node(G, original_G, node):
+    if not original_G.has_node(node) or G.has_node(node):
+        return
+    G.add_node(node, **dict(original_G.nodes[node].items()), faded=True)
+    # add edges
+    edges = list(edge for edge in itertools.chain(original_G.in_edges(node, keys=True), original_G.out_edges(node, keys=True)))
+    edges = set([(a,b,c) for a,b,c in edges if G.has_node(a) and G.has_node(b) and not G.has_edge(a,b,c)])      # TODO: should edges between faded nodes be added?
+    G.add_edges_from(edges)
+
+def add_hidden_neighbors(G, original_G):
+    nodes = list(G.nodes)
+    for node in nodes:
+        hidden_nodes = find_hidden_neighbors(G, original_G, node)
+        for n in hidden_nodes:
+            add_hidden_node(G, original_G, n)
+
+def expand(args, graph, original_G, key, expanded_graphs):
     n = int(args.size)
     ((method, phase), G, CFG) = graph
     for k in range(key, key + n):
         G = G.copy()
-        step(args, G)
+        step(args, G, original_G)
         expanded_graphs[k] = ((method, phase), G, CFG)
     return key + n
 
-def step(args, G):
+def step(args, G, original_G):
     # Simulate action on G (e.g. hiding or expansion).
-    # Here, for example, we just remove one randomly picked node.
     nodes = list(G.nodes)
     if not nodes:
         return
-    n = random.choice(nodes)
-    G.remove_node(n)
+    func = random.choice([simulate_hiding_node, simulate_expanding_node])
+    func(G, original_G)
+
+def find_hidden_neighbors(G, original_G, node):
+    nodes = list(G.nodes)
+    hidden = list(n for n in itertools.chain(original_G.predecessors(node), original_G.successors(node)) if not G.has_node(n))
+    return hidden
+
+def simulate_hiding_node(G, original_G):
+    print("hiding node")
+    nodes = list(G.nodes)
+    shown_nodes = list(n for n,faded in G.nodes(data="faded") if not faded)
+    if not shown_nodes:
+        return
+    node = random.choice(shown_nodes)
+    hide_shown_node(G, original_G, node)
+
+def hide_shown_node(G, original_G, node):
+    if not G.has_node:
+        return
+    # remove all faded neighbors to <node>
+    # make <node> faded
+    nx.set_node_attributes(G, {node: {"faded": True}})
+    faded_neighbors = list(n for n in itertools.chain(G.predecessors(node), G.successors(node)) if "faded" in G.nodes[n] and G.nodes[n]["faded"])
+    shown_nodes = list(n for n,faded in G.nodes(data="faded") if not faded)
+    for faded_node in faded_neighbors:
+        if not any(n in itertools.chain(G.successors(n), G.predecessors(n)) for n in shown_nodes) and G.has_node(faded_node):
+            G.remove_node(faded_node)
+
+def simulate_expanding_node(G, original_G):
+    print("expanding node")
+    nodes = list(G.nodes)
+    faded_nodes = list(n for n,faded in G.nodes(data="faded") if faded)
+    if not nodes or not faded_nodes:
+        return
+    node = random.choice(faded_nodes)
+    expand_faded_node(G, original_G, node)
+
+def expand_faded_node(G, original_G, node):
+    nx.set_node_attributes(G, {node: {"faded": False}})
+    neighbors = find_hidden_neighbors(G, original_G, node)
+    for n in neighbors:
+        add_hidden_node(G, original_G, n)
+
 
 filter_symbols = {'g' : 'int g',
                   'method' : 'str method(int)',
@@ -256,6 +329,9 @@ def main():
                              metavar='N',
                              default='1',
                              help="number of graph copies for each graph (default: %(default)s)")
+    list_filter.add_argument('--nodes',
+                             metavar='N',
+                             help="number of nodes the first graph should consist of")
 
     args = parser.parse_args()
 
@@ -287,9 +363,11 @@ def main():
         expanded_graphs = dict()
         key = 0
         for (graph_id, ((method, phase), G, CFG)) in graphs.items():
+            original_G = G.copy()
             if args.verbose:
                 print("expanding " + str(graph_id) + " " + method + "::" + phase + "...")
-            key = expand(args, ((method, phase), G, CFG), key, expanded_graphs)
+            initial_G = create_sub_graph(args, G, original_G)
+            key = expand(args, ((method, phase), initial_G, CFG), original_G, key, expanded_graphs)
         # Convert the selected graphs back to XML.
         if args.verbose:
             print("emitting output file " + args.XML_OUTPUT_FILE + " ...")
