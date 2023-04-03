@@ -242,7 +242,7 @@ def hide_shown_node(G, original_G, node):
     faded_neighbors = list(n for n in itertools.chain(G.predecessors(node), G.successors(node)) if "faded" in G.nodes[n] and G.nodes[n]["faded"])
     shown_nodes = list(n for n,faded in G.nodes(data="faded") if not faded)
     for faded_node in faded_neighbors:
-        if not any(n in itertools.chain(G.successors(n), G.predecessors(n)) for n in shown_nodes) and G.has_node(faded_node):
+        if not any(faded_node in itertools.chain(G.successors(n), G.predecessors(n)) for n in shown_nodes) and G.has_node(faded_node):
             G.remove_node(faded_node)
 
 def simulate_expanding_node(G, original_G):
