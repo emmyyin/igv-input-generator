@@ -60,6 +60,23 @@ def parse_add_node(G, xmlnode, xmlgraph):
     properties = find_node_properties(xmlgraph, idx)
     G.add_node(idx, **properties)
 
+def parse_edge(G, xmledge):
+    src = int(xmledge.attrib['from'])
+    dst = int(xmledge.attrib['to'])
+    if 'index' in xmledge.attrib:
+        ind = int(xmledge.attrib['index'])
+    elif 'toIndex' in xmledge.attrib:
+        ind = int(xmledge.attrib['toIndex'])
+    else:
+        ind = 0
+    return (src, dst, ind)
+
+def parse_add_edge(G, xmledge):
+    (src, dst, ind) = parse_edge(G, xmledge)
+    # The XML file sometimes contains (src,dst,ind) duplicates.
+    if not G.has_edge(src, dst, key=ind):
+        G.add_edge(src, dst, key=ind)
+
 def xml2graphs(xml_root, args):
     graphs = {}
     graph_id = 0
@@ -96,6 +113,16 @@ def xml2graphs(xml_root, args):
                         G.remove_node(idx)
                     else:
                         assert False
+                for edge in graph.find('edges'):
+                    if edge.tag == 'edge': # Edge insertion.
+                        parse_add_edge(G, edge)
+                    elif edge.tag == 'removeEdge': # Edge removal.
+                        (src, dst, ind) = parse_edge(G, edge)
+                        # The edge may have been removed with one of its nodes.
+                        if G.has_edge(src, dst, key=ind):
+                            G.remove_edge(src, dst, key=ind)
+                    else:
+                        assert False
             else: # Snapshot graph. Build the entire graph from scratch.
                 if args.verbose:
                     print("    building " + graph_name + " from scratch...")
@@ -104,17 +131,7 @@ def xml2graphs(xml_root, args):
                     for node in graph.find('nodes'):
                         parse_add_node(G, node, graph)
                     for edge in graph.find('edges'):
-                        src = int(edge.attrib['from'])
-                        dst = int(edge.attrib['to'])
-                        if 'index' in edge.attrib:
-                            ind = int(edge.attrib['index'])
-                        elif 'toIndex' in edge.attrib:
-                            ind = int(edge.attrib['toIndex'])
-                        else:
-                            ind = 0
-                        # The XML file sometimes contains (src,dst,ind) duplicates.
-                        if not G.has_edge(src, dst, key=ind):
-                            G.add_edge(src, dst, key=ind)
+                        parse_add_edge(G, edge)
             if is_difference:
                 previousG = G
             # TODO: Load the control-flow graph, if available.
