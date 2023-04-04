@@ -55,6 +55,11 @@ def find_name_in_properties(xmlelem):
             return p.text.strip()
     return None
 
+def parse_add_node(G, xmlnode, xmlgraph):
+    idx = int(xmlnode.attrib['id'])
+    properties = find_node_properties(xmlgraph, idx)
+    G.add_node(idx, **properties)
+
 def xml2graphs(xml_root, args):
     graphs = {}
     graph_id = 0
@@ -79,29 +84,39 @@ def xml2graphs(xml_root, args):
                 graph_id += 1
                 continue
             if is_difference and previousG != None:
+                # Incremental mode. Build the graph based on the previous one.
                 if args.verbose:
                     print("    building " + graph_name + " incrementally...")
+                G = previousG.copy()
+                for node in graph.find('nodes'):
+                    if node.tag == 'node': # Node insertion.
+                        parse_add_node(G, node, graph)
+                    elif node.tag == 'removeNode': # Node removal.
+                        idx = int(node.attrib['id'])
+                        G.remove_node(idx)
+                    else:
+                        assert False
             else: # Snapshot graph. Build the entire graph from scratch.
                 if args.verbose:
                     print("    building " + graph_name + " from scratch...")
                 G = nx.MultiDiGraph()
                 if not args.list:
                     for node in graph.find('nodes'):
-                        idx = int(node.attrib['id'])
-                        properties = find_node_properties(graph, idx)
-                        G.add_node(idx, **properties)
+                        parse_add_node(G, node, graph)
                     for edge in graph.find('edges'):
                         src = int(edge.attrib['from'])
                         dst = int(edge.attrib['to'])
                         if 'index' in edge.attrib:
                             ind = int(edge.attrib['index'])
+                        elif 'toIndex' in edge.attrib:
+                            ind = int(edge.attrib['toIndex'])
                         else:
                             ind = 0
                         # The XML file sometimes contains (src,dst,ind) duplicates.
                         if not G.has_edge(src, dst, key=ind):
                             G.add_edge(src, dst, key=ind)
-                if is_difference:
-                    previousG = G
+            if is_difference:
+                previousG = G
             # TODO: Load the control-flow graph, if available.
             CFG = None
             graphs[graph_id] = ((group_name, graph_name), G, CFG)
