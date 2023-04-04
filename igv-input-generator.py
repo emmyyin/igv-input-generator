@@ -62,45 +62,48 @@ def xml2graphs(xml_root, args):
         is_difference = False
         if 'difference' in group.attrib:
             is_difference = group.attrib['difference'] == 'true'
+        previousG = None
         group_name = find_name_in_properties(group)
+        if args.verbose:
+            print("  building " + group_name + " (difference: " + str(is_difference) + ")...")
         for graph in group.findall('graph'):
             if 'name' in graph.attrib:
                 graph_name = graph.attrib['name']
             else:
                 graph_name = find_name_in_properties(graph)
-            if not matches((graph_id, group_name, graph_name), args.filter):
+            # If the graph does not match the given filter pattern, skip parsing
+            # and building it. Except if we are difference mode, where have to
+            # parse and build the graph anyway to set it as the previous graph.
+            if not is_difference and \
+               not matches((graph_id, group_name, graph_name), args.filter):
                 graph_id += 1
                 continue
-            # Load the entire graph first.
-            G = nx.MultiDiGraph()
-            if not args.list:
-                for node in graph.find('nodes'):
-                    idx = int(node.attrib['id'])
-                    properties = find_node_properties(graph, idx)
-                    G.add_node(idx, **properties)
-                for edge in graph.find('edges'):
-                    src = int(edge.attrib['from'])
-                    dst = int(edge.attrib['to'])
-                    ind = int(edge.attrib['index'])
-                    # The XML file sometimes contains (src,dst,ind) duplicates.
-                    if not G.has_edge(src, dst, key=ind):
-                        G.add_edge(src, dst, key=ind)
-            # Load the control-flow graph, if available.
-            CFG = None
-            if graph.find('controlFlow'):
-                CFG = nx.DiGraph()
+            if is_difference and previousG != None:
+                if args.verbose:
+                    print("    building " + graph_name + " incrementally...")
+            else: # Snapshot graph. Build the entire graph from scratch.
+                if args.verbose:
+                    print("    building " + graph_name + " from scratch...")
+                G = nx.MultiDiGraph()
                 if not args.list:
-                    for xmlblock in graph.find('controlFlow'):
-                        block = int(xmlblock.attrib['name'])
-                        # The node order reflects the local schedule.
-                        nodes = []
-                        for xmlnode in xmlblock.find('nodes'):
-                            node = int(xmlnode.attrib['id'])
-                            nodes.append(node)
-                        CFG.add_node(block, **{'nodes' : nodes})
-                        for xmlsucc in xmlblock.find('successors'):
-                            succ = int(xmlsucc.attrib['name'])
-                            CFG.add_edge(block, succ)
+                    for node in graph.find('nodes'):
+                        idx = int(node.attrib['id'])
+                        properties = find_node_properties(graph, idx)
+                        G.add_node(idx, **properties)
+                    for edge in graph.find('edges'):
+                        src = int(edge.attrib['from'])
+                        dst = int(edge.attrib['to'])
+                        if 'index' in edge.attrib:
+                            ind = int(edge.attrib['index'])
+                        else:
+                            ind = 0
+                        # The XML file sometimes contains (src,dst,ind) duplicates.
+                        if not G.has_edge(src, dst, key=ind):
+                            G.add_edge(src, dst, key=ind)
+                if is_difference:
+                    previousG = G
+            # TODO: Load the control-flow graph, if available.
+            CFG = None
             graphs[graph_id] = ((group_name, graph_name), G, CFG)
             graph_id += 1
     return graphs
