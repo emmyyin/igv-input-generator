@@ -49,15 +49,25 @@ def find_node_properties(graph, idx):
         ps[p.attrib['name']] = p.text.strip()
     return ps
 
+def find_name_in_properties(xmlelem):
+    for p in xmlelem.find('properties'):
+        if (p.attrib['name'] == 'name'):
+            return p.text.strip()
+    return None
+
 def xml2graphs(xml_root, args):
     graphs = {}
     graph_id = 0
     for group in xml_root:
-        method = group.find('method')
-        group_name = method.attrib['name']
-        bci = int(method.attrib['bci'])
+        is_difference = False
+        if 'difference' in group.attrib:
+            is_difference = group.attrib['difference'] == 'true'
+        group_name = find_name_in_properties(group)
         for graph in group.findall('graph'):
-            graph_name = graph.attrib['name']
+            if 'name' in graph.attrib:
+                graph_name = graph.attrib['name']
+            else:
+                graph_name = find_name_in_properties(graph)
             if not matches((graph_id, group_name, graph_name), args.filter):
                 graph_id += 1
                 continue
