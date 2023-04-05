@@ -79,6 +79,7 @@ def parse_add_edge(G, xmledge):
         G.add_edge(src, dst, key=ind)
 
 def xml2graphs(xml_root, args):
+    print("here")
     graphs = {}
     graph_id = 0
     for group in xml_root:
