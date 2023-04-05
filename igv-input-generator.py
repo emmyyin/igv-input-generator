@@ -82,7 +82,6 @@ def xml2graphs(xml_root, args):
     graphs = {}
     graph_id = 0
     for group in xml_root:
-<<<<<<< HEAD
         is_difference = False
         if 'difference' in group.attrib:
             is_difference = group.attrib['difference'] == 'true'
@@ -90,11 +89,6 @@ def xml2graphs(xml_root, args):
         group_name = find_name_in_properties(group)
         if args.verbose:
             print("  building " + group_name + " (difference: " + str(is_difference) + ")...")
-=======
-        method = group.find('method')
-        group_name = method.attrib['name']
-        bci = int(method.attrib['bci'])
->>>>>>> d80398c... Removed prints
         for graph in group.findall('graph'):
             if 'name' in graph.attrib:
                 graph_name = graph.attrib['name']
