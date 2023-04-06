@@ -79,7 +79,6 @@ def parse_add_edge(G, xmledge):
         G.add_edge(src, dst, key=ind)
 
 def xml2graphs(xml_root, args):
-    print("here")
     graphs = {}
     graph_id = 0
     for group in xml_root:
@@ -208,8 +207,8 @@ def expand(args, graph, original_G, key, expanded_graphs):
     ((method, phase), G, CFG) = graph
     for k in range(key, key + n):
         G = G.copy()
-        step(args, G, original_G)
-        expanded_graphs[k] = ((method, phase), G, CFG)
+        action = step(args, G, original_G)
+        expanded_graphs[k] = ((method, action), G, CFG)
     return key + n
 
 def step(args, G, original_G):
@@ -218,7 +217,7 @@ def step(args, G, original_G):
     if not nodes:
         return
     func = random.choice([simulate_hiding_node, simulate_expanding_node])
-    func(G, original_G)
+    return func(G, original_G)
 
 def find_hidden_neighbors(G, original_G, node):
     nodes = list(G.nodes)
@@ -226,13 +225,13 @@ def find_hidden_neighbors(G, original_G, node):
     return hidden
 
 def simulate_hiding_node(G, original_G):
-    print("hiding node")
     nodes = list(G.nodes)
     shown_nodes = list(n for n,faded in G.nodes(data="faded") if not faded)
     if not shown_nodes:
         return
     node = random.choice(shown_nodes)
     hide_shown_node(G, original_G, node)
+    return "Hiding node " + str(node)
 
 def hide_shown_node(G, original_G, node):
     if not G.has_node:
@@ -247,13 +246,13 @@ def hide_shown_node(G, original_G, node):
             G.remove_node(faded_node)
 
 def simulate_expanding_node(G, original_G):
-    print("expanding node")
     nodes = list(G.nodes)
     faded_nodes = list(n for n,faded in G.nodes(data="faded") if faded)
     if not nodes or not faded_nodes:
         return
     node = random.choice(faded_nodes)
     expand_faded_node(G, original_G, node)
+    return "Expanding node " + str(node)
 
 def expand_faded_node(G, original_G, node):
     nx.set_node_attributes(G, {node: {"faded": False}})
@@ -365,9 +364,12 @@ def main():
         key = 0
         for (graph_id, ((method, phase), G, CFG)) in graphs.items():
             original_G = G.copy()
+            method = method + "::" + str(graph_id)
             if args.verbose:
                 print("expanding " + str(graph_id) + " " + method + "::" + phase + "...")
             initial_G = create_sub_graph(args, G, original_G)
+            expanded_graphs[key] = ((method, phase), initial_G, CFG)
+            key += 1
             key = expand(args, ((method, phase), initial_G, CFG), original_G, key, expanded_graphs)
         # Convert the selected graphs back to XML.
         if args.verbose:
