@@ -191,8 +191,8 @@ def add_hidden_node(G, original_G, node):
         return
     G.add_node(node, **dict(original_G.nodes[node].items()), faded=True)
     # add edges
-    edges = list(edge for edge in itertools.chain(original_G.in_edges(node, keys=True), original_G.out_edges(node, keys=True)))
-    edges = set([(a,b,c) for a,b,c in edges if G.has_node(a) and G.has_node(b) and not G.has_edge(a,b,c)])      # TODO: should edges between faded nodes be added?
+    edges = list(edge for edge in itertools.chain(original_G.in_edges(node, keys=True), original_G.out_edges(node, keys=True)))     # all edges to/from node
+    edges = set([(a,b,c) for a,b,c in edges if G.has_node(a) and G.has_node(b) and not G.has_edge(a,b,c)])
     G.add_edges_from(edges)
 
 def add_hidden_neighbors(G, original_G):
@@ -216,8 +216,23 @@ def step(args, G, original_G):
     nodes = list(G.nodes)
     if not nodes:
         return
-    func = random.choice([simulate_hiding_node, simulate_expanding_node])
-    return func(G, original_G)
+    if args.method == 'add':
+        return add_one_node_with_edges(G, original_G)
+    elif args.method == 'explore':
+        func = random.choice([simulate_hiding_node, simulate_expanding_node])
+        return func(G, original_G)
+    else:
+        print("unsupported expansion method", args.method)
+        return
+
+def add_one_node_with_edges(G, original_G):
+    nodes = list(G.nodes)
+    hidden = set([])
+    for node in nodes:
+        hidden.update(find_hidden_neighbors(G, original_G, node))
+    node = random.choice(list(hidden))
+    add_hidden_node(G, original_G, node)
+    return "Added node " + str(node)
 
 def find_hidden_neighbors(G, original_G, node):
     nodes = list(G.nodes)
@@ -230,10 +245,10 @@ def simulate_hiding_node(G, original_G):
     if not shown_nodes:
         return
     node = random.choice(shown_nodes)
-    hide_shown_node(G, original_G, node)
+    hide_shown_node(G, node)
     return "Hiding node " + str(node)
 
-def hide_shown_node(G, original_G, node):
+def hide_shown_node(G, node):
     if not G.has_node:
         return
     # remove all faded neighbors to <node>
@@ -332,6 +347,13 @@ def main():
     list_filter.add_argument('--nodes',
                              metavar='N',
                              help="number of nodes the first graph should consist of")
+    list_filter.add_argument('--sequences',
+                             metavar='N',
+                             help="number of sequences that should be expanded (default: all)")
+    list_filter.add_argument('--method',
+                             type=str,
+                             default="explore",
+                             help="graph expansion method, either 'add' or 'explore' (default: %(default)s)")
 
     args = parser.parse_args()
 
@@ -361,6 +383,8 @@ def main():
             return
         # Expand the selected graphs
         expanded_graphs = dict()
+        seqs = 0
+        max_seqs = int(args.sequences) if args.sequences else len(graphs.items())
         key = 0
         for (graph_id, ((method, phase), G, CFG)) in graphs.items():
             original_G = G.copy()
@@ -371,6 +395,9 @@ def main():
             expanded_graphs[key] = ((method, phase), initial_G, CFG)
             key += 1
             key = expand(args, ((method, phase), initial_G, CFG), original_G, key, expanded_graphs)
+            seqs += 1
+            if seqs >= max_seqs:
+                break
         # Convert the selected graphs back to XML.
         if args.verbose:
             print("emitting output file " + args.XML_OUTPUT_FILE + " ...")
